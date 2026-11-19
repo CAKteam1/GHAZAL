@@ -1,0 +1,24 @@
+{
+  "name": "ghazal",
+  "version": "1.0.0",
+  "description": "GHAZAL - Intelligent Multi-AI Project Oversight Agent (Desktop, Web & Drop-in CLI)",
+  "private": false,
+  "license": "MIT",
+  "bin": {
+    "ghazal": "./bin/ghazal.mjs"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "dev:desktop": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run start -w apps/desktop\"",
+    "build": "npm run build -w apps/server && npm run build -w apps/web && npm run build -w apps/desktop",
+    "package:desktop": "npm run build && npm run dist -w apps/desktop",
+    "attach": "node ./bin/ghazal.mjs attach"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "wait-on": "^8.0.1"
+  }
+}

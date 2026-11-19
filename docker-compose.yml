@@ -1,0 +1,22 @@
+services:
+  ghazal-server:
+    build: ./apps/server
+    ports:
+      - "4747:4747"
+    environment:
+      - PORT=4747
+      - GHAZAL_VAULT_SECRET=${GHAZAL_VAULT_SECRET:-change-me-in-production}
+      - GHAZAL_PROJECT_PATH=/workspace
+    volumes:
+      - ${TARGET_PROJECT_DIR:-./}:/workspace
+      - ghazal_vault:/root/.ghazal
+
+  ghazal-web:
+    build: ./apps/web
+    ports:
+      - "3000:80"
+    depends_on:
+      - ghazal-server
+
+volumes:
+  ghazal_vault:
