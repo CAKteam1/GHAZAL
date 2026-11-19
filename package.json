@@ -1,24 +1,25 @@
 {
-  "name": "ghazal",
+  "name": "@ghazal/web",
   "version": "1.0.0",
-  "description": "GHAZAL - Intelligent Multi-AI Project Oversight Agent (Desktop, Web & Drop-in CLI)",
-  "private": false,
-  "license": "MIT",
-  "bin": {
-    "ghazal": "./bin/ghazal.mjs"
-  },
-  "workspaces": [
-    "apps/*"
-  ],
+  "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
-    "dev:desktop": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && npm run start -w apps/desktop\"",
-    "build": "npm run build -w apps/server && npm run build -w apps/web && npm run build -w apps/desktop",
-    "package:desktop": "npm run build && npm run dist -w apps/desktop",
-    "attach": "node ./bin/ghazal.mjs attach"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
-    "wait-on": "^8.0.1"
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.1.0"
   }
 }
