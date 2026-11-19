@@ -10,9 +10,24 @@
   --border-hairline: #e2dcd3;
 }
 
+.theme-espresso {
+  --bg-matte: #14110f;
+  --bg-card: #1d1815;
+  --bg-subtle: #28211d;
+  --ink-black: #f5f1ea;
+  --accent-brown: #c29b7f;
+  --accent-brown-soft: #9e8c7e;
+  --border-hairline: #332a24;
+}
+
 body {
   background-color: var(--bg-matte);
   color: var(--ink-black);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
