@@ -1,25 +1,20 @@
 {
-  "name": "@ghazal/web",
+  "name": "@ghazal/desktop",
   "version": "1.0.0",
-  "type": "module",
+  "main": "dist/main.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc",
+    "start": "tsc && electron .",
+    "dist": "electron-builder"
   },
-  "dependencies": {
-    "framer-motion": "^12.0.0",
-    "lucide-react": "^0.475.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+  "build": {
+    "appId": "com.ghazal.ai.agent",
+    "productName": "GHAZAL",
+    "files": ["dist/**/*", "../web/dist/**/*", "../server/dist/**/*"]
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "tailwindcss": "^4.0.0",
-    "typescript": "^5.7.2",
-    "vite": "^6.1.0"
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
   }
 }
