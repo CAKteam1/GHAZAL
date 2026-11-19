@@ -1,706 +1,366 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  LayoutDashboard,
-  BarChart3,
-  CalendarClock,
-  KanbanSquare,
-  MessageSquareCode,
-  Settings,
-  ShieldCheck,
-  Activity,
-  Github,
-  FolderUp,
-  Moon,
-  Sun,
-  Languages,
-  SendToBack,
+  LayoutGrid,
+  Share2,
+  Users,
+  UserCheck,
   Sparkles,
-  Send,
-  Trash2,
+  Instagram,
+  Facebook,
+  Youtube,
+  Mail,
+  CheckCircle2,
   Plus,
-  Play,
-  Pause,
 } from 'lucide-react';
-import { GhazalLogo } from './components/GhazalLogo';
-import { ProviderVault } from './components/ProviderVault';
-import { callDirectLLM, loadVault } from './lib/directLLM';
-import { ProjectSnapshot, scanGitHubRepo, scanLocalFileList } from './lib/projectSource';
 import {
-  ALL_AGENTS,
-  AuditFinding,
-  loadDB,
-  runStandaloneAudit,
-  saveDB,
-} from './lib/standaloneStore';
+  INITIAL_STATE,
+  loadStudioState,
+  runStudioAI,
+  saveStudioState,
+  StudioState,
+} from './lib/studioStore';
+import {
+  GhazalEmblem,
+  GlassCardMotion,
+  KineticBadge,
+} from './components/MotionPrimitives';
+import { AccountAuthView } from './components/AccountAuthModal';
+import { SocialHubView } from './components/SocialHubView';
+import { TeamWorkspaceView } from './components/TeamWorkspaceView';
 
-type TabId = 'overview' | 'analytics' | 'schedules' | 'tasks' | 'chat' | 'settings';
+type StudioTab = 'studio' | 'social' | 'team' | 'accounts';
 
 export default function App() {
-  const [tab, setTab] = useState<TabId>('overview');
-  const [lang, setLang] = useState<'ar' | 'en'>('ar');
-  const [dark, setDark] = useState(false);
+  const [tab, setTab] = useState<StudioTab>('studio');
+  const [state, setState] = useState<StudioState>(() => loadStudioState());
+  const [quickPrompt, setQuickPrompt] = useState('');
+  const [quickOutput, setQuickOutput] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const [repoUrl, setRepoUrl] = useState('https://github.com/facebook/react');
-  const [snapshot, setSnapshot] = useState<ProjectSnapshot | null>(null);
-  const [isAuditing, setIsAuditing] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [errorBanner, setErrorBanner] = useState('');
-
-  const [db, setDb] = useState(() => loadDB());
-  const [chatInput, setChatInput] = useState('');
-  const [chatBusy, setChatBusy] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [fixingId, setFixingId] = useState<string | null>(null);
-  const [schedName, setSchedName] = useState('فحص تلقائي كل ساعة');
-  const [schedMins, setSchedMins] = useState(60);
-
-  const folderInputRef = useRef<HTMLInputElement | null>(null);
-
-  const refreshDB = () => setDb(loadDB());
-  const addLog = (msg: string) =>
-    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 35));
-
-  // Browser-based Autonomous Scheduler while tab is open
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (!snapshot || isAuditing) return;
-      const current = loadDB();
-      const now = Date.now();
-      for (const rule of current.schedules) {
-        if (!rule.enabled) continue;
-        const last = rule.lastRunAt ? new Date(rule.lastRunAt).getTime() : 0;
-        if (now - last >= rule.intervalMinutes * 60 * 1000) {
-          rule.lastRunAt = new Date().toISOString();
-          saveDB(current);
-          refreshDB();
-          addLog(`تشغيل المهمة المجدولة: ${rule.name}`);
-          runStandaloneAudit(snapshot, ['SECURITY_SENTINEL', 'CODE_HEALTH', 'TASK_DELEGATOR'], addLog)
-            .then(() => refreshDB())
-            .catch((e) => setErrorBanner(e.message));
-          break;
-        }
-      }
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [snapshot, isAuditing]);
+    fetch('/api/state')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((remote) => {
+        if (remote && remote.aiAccounts) setState({ ...INITIAL_STATE, ...remote });
+      })
+      .catch(() => {});
+  }, []);
 
-  async function handleGitHubAudit() {
-    setErrorBanner('');
-    setIsAuditing(true);
+  function updateState(next: StudioState) {
+    setState(next);
+    saveStudioState(next);
+  }
+
+  async function handleQuickCommand() {
+    if (!quickPrompt.trim() || busy) return;
+    setBusy(true);
     try {
-      addLog(`جاري جلب ملفات المستودع من GitHub: ${repoUrl}`);
-      const snap = await scanGitHubRepo(repoUrl);
-      setSnapshot(snap);
-      addLog(`تم فهرسة ${snap.fileCount} ملفاً (${snap.samples.length} عينة كود)`);
-      await runStandaloneAudit(snap, ['SECURITY_SENTINEL', 'CODE_HEALTH', 'TASK_DELEGATOR'], addLog);
-      refreshDB();
-    } catch (err: any) {
-      setErrorBanner(err.message);
-      addLog(`خطأ: ${err.message}`);
+      const res = await runStudioAI(
+        state,
+        'You are GHAZAL AI Studio Orchestrator. Reply in polished Arabic.',
+        quickPrompt
+      );
+      setQuickOutput(res.text);
+    } catch (e: any) {
+      setQuickOutput(e.message);
     } finally {
-      setIsAuditing(false);
+      setBusy(false);
     }
   }
 
-  async function handleFolderPicked(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setErrorBanner('');
-    setIsAuditing(true);
-    try {
-      addLog('جاري قراءة مجلد المشروع من جهازك...');
-      const snap = await scanLocalFileList(files);
-      setSnapshot(snap);
-      addLog(`تم تحميل ${snap.fileCount} ملفاً من ${snap.sourceLabel}`);
-      await runStandaloneAudit(snap, ['SECURITY_SENTINEL', 'CODE_HEALTH', 'TASK_DELEGATOR'], addLog);
-      refreshDB();
-    } catch (err: any) {
-      setErrorBanner(err.message);
-    } finally {
-      setIsAuditing(false);
-      e.target.value = '';
-    }
-  }
-
-  function promoteFinding(f: AuditFinding) {
-    const current = loadDB();
-    current.tasks.unshift({
-      id: `task_${Date.now()}`,
-      title: f.title,
-      description: f.recommendation,
-      file: f.file,
-      severity: f.severity,
-      status: 'todo',
-      createdAt: new Date().toISOString(),
-    });
-    saveDB(current);
-    refreshDB();
-    setTab('tasks');
-  }
-
-  async function sendChat(text = chatInput) {
-    if (!text.trim() || chatBusy) return;
-    setChatBusy(true);
-    setErrorBanner('');
-    try {
-      const current = loadDB();
-      current.chat.push({
-        id: `u_${Date.now()}`,
-        role: 'user',
-        content: text,
-        timestamp: new Date().toISOString(),
-      });
-      saveDB(current);
-      refreshDB();
-      setChatInput('');
-
-      const ctx = snapshot
-        ? `\n[Project: ${snapshot.sourceLabel}, files=${snapshot.fileCount}, sample tree=${snapshot.tree.slice(0, 35).join(', ')}]`
-        : '';
-
-      const res = await callDirectLLM({
-        systemPrompt:
-          'You are GHAZAL AI Agent. Answer clearly in Arabic or English matching the user prompt.',
-        userPrompt: `${text}${ctx}`,
-      });
-
-      const after = loadDB();
-      after.chat.push({
-        id: `a_${Date.now()}`,
-        role: 'assistant',
-        content: res.text,
-        provider: `${res.provider}:${res.model}`,
-        latencyMs: res.latencyMs,
-        timestamp: new Date().toISOString(),
-      });
-      saveDB(after);
-      refreshDB();
-    } catch (err: any) {
-      setErrorBanner(err.message);
-    } finally {
-      setChatBusy(false);
-    }
-  }
-
-  async function suggestFixForTask(taskId: string) {
-    const current = loadDB();
-    const task = current.tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    setFixingId(taskId);
-    try {
-      const res = await callDirectLLM({
-        systemPrompt: 'Provide a concise code fix and verification steps.',
-        userPrompt: `Task: ${task.title}\nFile: ${task.file || 'N/A'}\nDetails: ${task.description}`,
-      });
-      task.aiFixSuggestion = res.text;
-      saveDB(current);
-      refreshDB();
-    } catch (err: any) {
-      setErrorBanner(err.message);
-    } finally {
-      setFixingId(null);
-    }
-  }
-
-  const vault = loadVault();
-  const hasAnyKey = Boolean(vault.keys.gemini || vault.keys.claude || vault.keys.openai);
-  const latestRun = db.history[0];
-
-  const navItems: { id: TabId; label: string; icon: any }[] = [
-    { id: 'overview', label: lang === 'ar' ? 'الرئيسية' : 'Dashboard', icon: LayoutDashboard },
-    { id: 'analytics', label: lang === 'ar' ? 'الإحصائيات' : 'Analytics', icon: BarChart3 },
-    { id: 'schedules', label: lang === 'ar' ? 'المجدول' : 'Schedules', icon: CalendarClock },
-    { id: 'tasks', label: lang === 'ar' ? 'المهام' : 'Tasks', icon: KanbanSquare },
-    { id: 'chat', label: lang === 'ar' ? 'المحادثة' : 'Chat', icon: MessageSquareCode },
-    { id: 'settings', label: lang === 'ar' ? 'المفاتيح' : 'API Keys', icon: Settings },
+  const navItems: { id: StudioTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'studio', label: 'الاستوديو', icon: <LayoutGrid size={17} /> },
+    { id: 'social', label: 'إدارة المنصات AI', icon: <Share2 size={17} /> },
+    { id: 'team', label: 'الفريق والتواصل', icon: <Users size={17} /> },
+    { id: 'accounts', label: 'حسابات AI', icon: <UserCheck size={17} /> },
   ];
 
+  const activeAccount = state.aiAccounts[state.activeProvider];
+
   return (
-    <div
-      dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className={`min-h-screen ${dark ? 'theme-espresso' : ''} bg-[var(--bg-matte)] text-[var(--ink-black)]`}
-    >
-      <div className="mx-auto flex max-w-6xl flex-col md:flex-row">
-        {/* Desktop Sidebar */}
-        <aside className="hidden w-60 shrink-0 border-e border-[var(--border-hairline)] p-6 md:flex md:flex-col md:justify-between">
-          <div className="space-y-8">
-            <div className="flex items-center gap-3">
-              <GhazalLogo size={40} />
-              <div>
-                <h1 className="text-lg font-bold tracking-[0.16em]">GHAZAL</h1>
-                <p className="text-[10px] uppercase tracking-wider text-[var(--accent-brown-soft)]">Web Standalone</p>
+    <div className="relative min-h-screen pb-24 md:pb-10">
+      {/* Ambient Light-Brown Glass Orbs */}
+      <div className="ambient-orb fixed -top-24 right-10 h-80 w-80 rounded-full bg-[#b5845e]/25 blur-3xl" />
+      <div className="ambient-orb fixed bottom-10 left-10 h-96 w-96 rounded-full bg-[#8c6244]/20 blur-3xl" />
+
+      <div className="relative z-10 mx-auto max-w-7xl px-4 pt-6 md:px-8">
+        {/* Top Studio Glass Header */}
+        <motion.header
+          initial={{ opacity: 0, y: -14 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-panel mb-7 flex flex-wrap items-center justify-between gap-4 rounded-3xl px-6 py-4"
+        >
+          <div className="flex items-center gap-3.5">
+            <GhazalEmblem size={46} />
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black tracking-[0.14em] text-[#261b14]">
+                  GHAZAL <span className="font-light text-[#8c6244]">STUDIO</span>
+                </h1>
+                <KineticBadge>v3.0 Glass</KineticBadge>
               </div>
+              <p className="text-xs text-[#6e5442]">
+                مساحة عمل ذكية لإدارة المشاريع، الفرق، والمنصات الاجتماعية
+              </p>
             </div>
-            <nav className="space-y-1.5">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setTab(item.id)}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-medium transition ${
-                      tab === item.id
-                        ? 'bg-[var(--ink-black)] text-[var(--bg-matte)]'
-                        : 'hover:bg-[var(--bg-subtle)]'
-                    }`}
-                  >
-                    <Icon size={16} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
           </div>
-          <div className="flex gap-2 border-t border-[var(--border-hairline)] pt-4">
-            <button
-              onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
-              className="flex flex-1 items-center justify-center gap-1 rounded-xl border border-[var(--border-hairline)] py-2 text-xs"
-            >
-              <Languages size={14} /> {lang === 'ar' ? 'EN' : 'عربي'}
-            </button>
-            <button
-              onClick={() => setDark(!dark)}
-              className="rounded-xl border border-[var(--border-hairline)] px-3 py-2"
-            >
-              {dark ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
-          </div>
-        </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 px-4 pb-24 pt-5 md:px-8 md:pb-10 md:pt-8">
-          <header className="mb-5 flex items-center justify-between border-b border-[var(--border-hairline)] pb-4">
-            <div className="flex items-center gap-3">
-              <div className="md:hidden">
-                <GhazalLogo size={36} animated={false} />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold md:text-2xl">
-                  {navItems.find((n) => n.id === tab)?.label}
-                </h2>
-                <p className="text-[11px] text-[var(--accent-brown-soft)]">
-                  يعمل مباشرة من المتصفح بدون أي سيرفر
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 md:hidden">
-              <button
-                onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')}
-                className="rounded-full border border-[var(--border-hairline)] p-2"
-              >
-                <Languages size={14} />
-              </button>
-              <button
-                onClick={() => setDark(!dark)}
-                className="rounded-full border border-[var(--border-hairline)] p-2"
-              >
-                {dark ? <Sun size={14} /> : <Moon size={14} />}
-              </button>
-            </div>
-          </header>
-
-          {!hasAnyKey && (
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-400/50 bg-amber-500/10 px-4 py-3 text-xs">
-              <span>لم تضف مفتاح AI بعد — أضف مفتاح Gemini أو Claude أو OpenAI للبدء فوراً.</span>
-              <button
-                onClick={() => setTab('settings')}
-                className="rounded-lg bg-[var(--ink-black)] px-3 py-1.5 text-[11px] font-semibold text-[var(--bg-matte)]"
-              >
-                إضافة مفتاح API
-              </button>
-            </div>
-          )}
-
-          {errorBanner && (
-            <div className="mb-5 rounded-2xl border border-red-400/50 bg-red-500/10 px-4 py-3 text-xs text-red-700">
-              {errorBanner}
-            </div>
-          )}
-
-          {tab === 'overview' && (
-            <div className="space-y-6">
-              {/* Dual Source Selector: GitHub URL OR Pick Local Folder from Phone */}
-              <section className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-5 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent-brown)]">
-                  اختر مصدر المشروع للفحص الفوري
-                </p>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <div className="flex flex-1 items-center gap-2 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3">
-                    <Github size={15} className="shrink-0 opacity-60" />
-                    <input
-                      value={repoUrl}
-                      onChange={(e) => setRepoUrl(e.target.value)}
-                      placeholder="رابط مستودع GitHub (مثال: user/repo)"
-                      className="w-full bg-transparent py-2.5 font-mono text-xs outline-none"
+          {/* Desktop Navigation Pills */}
+          <nav className="hidden items-center gap-1.5 rounded-2xl bg-[#8c6244]/10 p-1.5 md:flex">
+            {navItems.map((item) => {
+              const active = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setTab(item.id)}
+                  className={`relative flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+                    active ? 'text-[#f7f2eb]' : 'text-[#4e3829] hover:text-[#261b14]'
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="studioActivePill"
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                      className="absolute inset-0 rounded-xl bg-[#3a271c] shadow-sm"
                     />
-                  </div>
-                  <button
-                    onClick={handleGitHubAudit}
-                    disabled={isAuditing}
-                    className="rounded-xl bg-[var(--ink-black)] px-4 py-2.5 text-xs font-semibold text-[var(--bg-matte)] disabled:opacity-50"
-                  >
-                    {isAuditing ? 'جاري الفحص...' : 'فحص رابط GitHub'}
-                  </button>
-                  <button
-                    onClick={() => folderInputRef.current?.click()}
-                    disabled={isAuditing}
-                    className="flex items-center justify-center gap-1.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-4 py-2.5 text-xs font-semibold"
-                  >
-                    <FolderUp size={15} /> رفع مجلد من جهازك
-                  </button>
-                  <input
-                    ref={folderInputRef}
-                    type="file"
-                    multiple
-                    {...({ webkitdirectory: '', directory: '' } as any)}
-                    onChange={handleFolderPicked}
-                    className="hidden"
-                  />
-                </div>
-              </section>
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    {item.icon} {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
 
-              {/* KPI Cards */}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4">
-                  <p className="text-[11px] text-[var(--accent-brown-soft)]">صحة المشروع</p>
-                  <p className="mt-1 text-2xl font-bold">
-                    {latestRun ? `${latestRun.healthScore}/100` : '—'}
+          {/* Active AI Account Status Pill */}
+          <button
+            onClick={() => setTab('accounts')}
+            className="flex items-center gap-2 rounded-2xl border border-[#8c6244]/30 bg-white/65 px-3.5 py-2 text-xs font-bold text-[#3a271c] transition hover:bg-white"
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-600" />
+            <span className="uppercase">{state.activeProvider}</span>
+            <span className="text-[10px] font-normal text-[#6e5442]">
+              ({activeAccount.loggedIn ? 'جلسة نشطة' : 'غير متصل'})
+            </span>
+          </button>
+        </motion.header>
+
+        {/* Tab Views with Smooth Transitions */}
+        <AnimatePresence mode="wait">
+          {tab === 'studio' && (
+            <motion.div
+              key="studio"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              className="space-y-6"
+            >
+              {/* Studio KPI Strip */}
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <GlassCardMotion delay={0.02} className="p-5">
+                  <span className="text-xs text-[#6e5442]">المزود الذكي النشط</span>
+                  <p className="mt-1 text-2xl font-black uppercase text-[#261b14]">{state.activeProvider}</p>
+                  <span className="text-[11px] text-emerald-700">يعمل بجلسة الحساب مباشرة</span>
+                </GlassCardMotion>
+
+                <GlassCardMotion delay={0.06} className="p-5">
+                  <span className="text-xs text-[#6e5442]">القنوات المُدارة AI</span>
+                  <p className="mt-1 text-2xl font-black text-[#261b14]">
+                    {state.socialChannels.filter((c) => c.connected).length} / 4
                   </p>
-                </div>
-                <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4">
-                  <p className="text-[11px] text-[var(--accent-brown-soft)]">المزود النشط</p>
-                  <p className="mt-1 text-lg font-bold uppercase">{vault.activeProvider}</p>
-                </div>
-                <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4">
-                  <p className="text-[11px] text-[var(--accent-brown-soft)]">المهام المفتوحة</p>
-                  <p className="mt-1 text-2xl font-bold">
-                    {db.tasks.filter((t) => t.status !== 'done').length}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4">
-                  <p className="text-[11px] text-[var(--accent-brown-soft)]">الفحوصات المنجزة</p>
-                  <p className="mt-1 text-2xl font-bold">{db.history.length}</p>
-                </div>
+                  <span className="text-[11px] text-[#8c6244]">IG • FB • YT • Gmail</span>
+                </GlassCardMotion>
+
+                <GlassCardMotion delay={0.1} className="p-5">
+                  <span className="text-xs text-[#6e5442]">أعضاء الاستوديو</span>
+                  <p className="mt-1 text-2xl font-black text-[#261b14]">{state.members.length}</p>
+                  <span className="text-[11px] text-[#8c6244]">مساحة عمل تشاركية</span>
+                </GlassCardMotion>
+
+                <GlassCardMotion delay={0.14} className="p-5">
+                  <span className="text-xs text-[#6e5442]">المنشورات والردود</span>
+                  <p className="mt-1 text-2xl font-black text-[#261b14]">{state.socialQueue.length}</p>
+                  <span className="text-[11px] text-[#8c6244]">مجدولة وجاهزة للنشر</span>
+                </GlassCardMotion>
               </div>
 
-              {/* Findings + Live Log */}
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="space-y-3 lg:col-span-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--accent-brown)]">
-                    <ShieldCheck size={14} /> نتائج التدقيق ({latestRun?.findings.length || 0})
-                  </div>
-                  <AnimatePresence>
-                    {(latestRun?.findings || []).map((f) => (
-                      <motion.div
-                        key={f.id}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4"
+              {/* Studio AI Command Bar */}
+              <GlassCardMotion delay={0.16} className="p-6">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-xs font-bold text-[#5c3f2b]">
+                    <Sparkles size={15} /> موجه استوديو غزال السريع (Gemini / ChatGPT / Claude)
+                  </span>
+                  <div className="flex gap-1.5">
+                    {(['gemini', 'chatgpt', 'claude'] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => updateState({ ...state, activeProvider: p })}
+                        className={`rounded-lg px-2.5 py-1 text-[10px] font-bold uppercase ${
+                          state.activeProvider === p
+                            ? 'bg-[#3a271c] text-white'
+                            : 'bg-white/60 text-[#5c3f2b]'
+                        }`}
                       >
-                        <div className="mb-1 flex items-center justify-between">
-                          <span className="font-mono text-[10px] font-bold text-[var(--accent-brown-soft)]">
-                            {f.agent}
-                          </span>
-                          <span className="rounded-full bg-[var(--bg-subtle)] px-2.5 py-0.5 text-[10px] font-semibold uppercase">
-                            {f.severity}
-                          </span>
-                        </div>
-                        <h3 className="text-sm font-semibold">{f.title}</h3>
-                        {f.file && (
-                          <p className="mt-0.5 font-mono text-[11px] text-[var(--accent-brown)]">{f.file}</p>
-                        )}
-                        <p className="mt-1.5 text-xs text-[var(--accent-brown-soft)]">{f.recommendation}</p>
-                        <button
-                          onClick={() => promoteFinding(f)}
-                          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-hairline)] px-2.5 py-1 text-[11px]"
-                        >
-                          <SendToBack size={12} /> تحويل إلى مهمة
-                        </button>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                </div>
-
-                <aside className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--accent-brown)]">
-                    <Activity size={14} /> سجل العمليات المباشر
-                  </div>
-                  <div className="max-h-80 space-y-2 overflow-y-auto font-mono text-[11px] text-[var(--accent-brown-soft)]">
-                    {logs.length === 0 && <p className="opacity-60">في انتظار بدء الفحص...</p>}
-                    {logs.map((l, i) => (
-                      <div key={i} className="border-s-2 border-[var(--accent-brown)] ps-2">
-                        {l}
-                      </div>
+                        {p}
+                      </button>
                     ))}
                   </div>
-                </aside>
-              </div>
-            </div>
-          )}
-
-          {tab === 'analytics' && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-5">
-                <h3 className="mb-4 text-xs font-semibold uppercase text-[var(--accent-brown)]">
-                  تطور نقاط صحة الكود (Health Trend)
-                </h3>
-                {db.history.length === 0 ? (
-                  <p className="text-xs text-[var(--accent-brown-soft)]">أجرِ فحصاً لعرض الإحصائيات.</p>
-                ) : (
-                  <div className="flex h-40 items-end gap-2">
-                    {db.history
-                      .slice(0, 12)
-                      .reverse()
-                      .map((r) => (
-                        <div key={r.runId} className="flex flex-1 flex-col items-center gap-1">
-                          <span className="text-[10px] font-bold">{r.healthScore}</span>
-                          <div
-                            className="w-full max-w-[32px] rounded-t-lg bg-[var(--accent-brown)]"
-                            style={{ height: `${Math.max(10, r.healthScore)}%` }}
-                          />
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-              <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-5">
-                <h3 className="mb-3 text-xs font-semibold uppercase text-[var(--accent-brown)]">
-                  إحصائيات الاستجابة والاستهلاك
-                </h3>
-                <p className="text-xs">إجمالي طلبات الذكاء الاصطناعي: {db.metrics.length}</p>
-                <p className="mt-1 text-xs">
-                  متوسط سرعة الاستجابة:{' '}
-                  {db.metrics.length
-                    ? Math.round(db.metrics.reduce((a, b) => a + b.latencyMs, 0) / db.metrics.length)
-                    : 0}{' '}
-                  ms
-                </p>
-              </div>
-            </div>
-          )}
-
-          {tab === 'schedules' && (
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-5 sm:flex-row">
-                <input
-                  value={schedName}
-                  onChange={(e) => setSchedName(e.target.value)}
-                  className="flex-1 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 text-xs"
-                  placeholder="اسم المهمة المجدولة"
-                />
-                <select
-                  value={schedMins}
-                  onChange={(e) => setSchedMins(Number(e.target.value))}
-                  className="rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 text-xs"
-                >
-                  <option value={15}>كل 15 دقيقة</option>
-                  <option value={60}>كل ساعة</option>
-                  <option value={360}>كل 6 ساعات</option>
-                </select>
-                <button
-                  onClick={() => {
-                    const current = loadDB();
-                    current.schedules.unshift({
-                      id: `sch_${Date.now()}`,
-                      name: schedName,
-                      intervalMinutes: schedMins,
-                      enabled: true,
-                    });
-                    saveDB(current);
-                    refreshDB();
-                  }}
-                  className="flex items-center justify-center gap-1 rounded-xl bg-[var(--accent-brown)] px-4 py-2 text-xs font-semibold text-white"
-                >
-                  <Plus size={14} /> إضافة جدول
-                </button>
-              </div>
-
-              {db.schedules.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-4"
-                >
-                  <div>
-                    <p className="text-sm font-semibold">{s.name}</p>
-                    <p className="text-xs text-[var(--accent-brown-soft)]">كل {s.intervalMinutes} دقيقة</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        const current = loadDB();
-                        const item = current.schedules.find((x) => x.id === s.id);
-                        if (item) item.enabled = !item.enabled;
-                        saveDB(current);
-                        refreshDB();
-                      }}
-                      className="rounded-lg bg-[var(--bg-subtle)] p-2"
-                    >
-                      {s.enabled ? <Pause size={14} /> : <Play size={14} />}
-                    </button>
-                    <button
-                      onClick={() => {
-                        const current = loadDB();
-                        current.schedules = current.schedules.filter((x) => x.id !== s.id);
-                        saveDB(current);
-                        refreshDB();
-                      }}
-                      className="rounded-lg bg-[var(--bg-subtle)] p-2 text-red-600"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
                 </div>
-              ))}
-            </div>
-          )}
 
-          {tab === 'tasks' && (
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <input
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  placeholder="أضف مهمة برمجية جديدة..."
-                  className="flex-1 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-card)] px-4 py-2.5 text-xs"
-                />
-                <button
-                  onClick={() => {
-                    if (!newTaskTitle.trim()) return;
-                    const current = loadDB();
-                    current.tasks.unshift({
-                      id: `t_${Date.now()}`,
-                      title: newTaskTitle,
-                      description: '',
-                      severity: 'medium',
-                      status: 'todo',
-                      createdAt: new Date().toISOString(),
-                    });
-                    saveDB(current);
-                    setNewTaskTitle('');
-                    refreshDB();
-                  }}
-                  className="rounded-xl bg-[var(--ink-black)] px-4 py-2 text-xs font-semibold text-[var(--bg-matte)]"
-                >
-                  إضافة
-                </button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                {(['todo', 'in_progress', 'done'] as const).map((st) => (
-                  <div key={st} className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-subtle)] p-4">
-                    <p className="mb-3 text-xs font-bold uppercase text-[var(--accent-brown)]">
-                      {st === 'todo' ? 'قيد الانتظار' : st === 'in_progress' ? 'قيد التنفيذ' : 'مكتمل'}
-                    </p>
-                    <div className="space-y-2.5">
-                      {db.tasks
-                        .filter((t) => t.status === st)
-                        .map((t) => (
-                          <div key={t.id} className="rounded-xl bg-[var(--bg-card)] p-3 text-xs">
-                            <p className="font-semibold">{t.title}</p>
-                            {t.description && (
-                              <p className="mt-1 text-[11px] text-[var(--accent-brown-soft)]">{t.description}</p>
-                            )}
-                            {t.aiFixSuggestion && (
-                              <pre className="mt-2 max-h-36 overflow-auto rounded-lg bg-[var(--bg-matte)] p-2 font-mono text-[10px] whitespace-pre-wrap">
-                                {t.aiFixSuggestion}
-                              </pre>
-                            )}
-                            <div className="mt-2.5 flex flex-wrap gap-1.5">
-                              <button
-                                onClick={() => suggestFixForTask(t.id)}
-                                disabled={fixingId === t.id}
-                                className="inline-flex items-center gap-1 rounded-lg bg-[var(--accent-brown)] px-2.5 py-1 text-[10px] text-white"
-                              >
-                                <Sparkles size={11} /> {fixingId === t.id ? 'جاري الحل...' : 'اقتراح حل'}
-                              </button>
-                              {st !== 'done' && (
-                                <button
-                                  onClick={() => {
-                                    const current = loadDB();
-                                    const item = current.tasks.find((x) => x.id === t.id);
-                                    if (item) item.status = st === 'todo' ? 'in_progress' : 'done';
-                                    saveDB(current);
-                                    refreshDB();
-                                  }}
-                                  className="rounded-lg border border-[var(--border-hairline)] px-2.5 py-1 text-[10px]"
-                                >
-                                  نقل للمرحلة التالية
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {tab === 'chat' && (
-            <div className="flex h-[68vh] flex-col rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)]">
-              <div className="flex-1 space-y-3 overflow-y-auto p-4">
-                {db.chat.length === 0 && (
-                  <p className="pt-10 text-center text-xs text-[var(--accent-brown-soft)]">
-                    اسأل غزال عن أي شيء في مشروعك أو اطلب منه كتابة كود جديد...
-                  </p>
-                )}
-                {db.chat.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed whitespace-pre-wrap ${
-                      m.role === 'user'
-                        ? 'ms-auto bg-[var(--ink-black)] text-[var(--bg-matte)]'
-                        : 'bg-[var(--bg-subtle)]'
-                    }`}
+                <div className="flex flex-col gap-2.5 sm:flex-row">
+                  <input
+                    value={quickPrompt}
+                    onChange={(e) => setQuickPrompt(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleQuickCommand()}
+                    placeholder="اطلب من غزال كتابة حملة إعلانية، الرد على بريد Gmail، أو تقسيم مهام الفريق..."
+                    className="glass-input flex-1 rounded-2xl px-4 py-3 text-xs"
+                  />
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={handleQuickCommand}
+                    disabled={busy}
+                    className="rounded-2xl bg-[#3a271c] px-6 py-3 text-xs font-bold text-[#f7f2eb] shadow-sm"
                   >
-                    {m.content}
-                    {m.provider && (
-                      <div className="mt-1 font-mono text-[9px] opacity-60">
-                        {m.provider} • {m.latencyMs}ms
-                      </div>
-                    )}
+                    {busy ? 'جاري التنفيذ...' : 'تنفيذ الأمر'}
+                  </motion.button>
+                </div>
+
+                {quickOutput && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 whitespace-pre-wrap rounded-2xl border border-[#8c6244]/25 bg-white/75 p-4 text-xs leading-relaxed text-[#261b14]"
+                  >
+                    {quickOutput}
+                  </motion.div>
+                )}
+              </GlassCardMotion>
+
+              {/* Quick Overview Cards: Social Channels + Active Workspace Tasks */}
+              <div className="grid gap-6 md:grid-cols-2">
+                <GlassCardMotion delay={0.2} className="p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#5c3f2b]">
+                      حالة القنوات المتصلة
+                    </h3>
+                    <button onClick={() => setTab('social')} className="text-xs font-bold text-[#8c6244]">
+                      إدارة الكل
+                    </button>
                   </div>
-                ))}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {state.socialChannels.map((ch) => (
+                      <div
+                        key={ch.id}
+                        className="flex items-center justify-between rounded-2xl bg-white/65 px-3.5 py-2.5 text-xs"
+                      >
+                        <span className="flex items-center gap-2 font-bold">
+                          {ch.id === 'instagram' && <Instagram size={14} className="text-pink-700" />}
+                          {ch.id === 'facebook' && <Facebook size={14} className="text-blue-700" />}
+                          {ch.id === 'youtube' && <Youtube size={14} className="text-red-700" />}
+                          {ch.id === 'gmail' && <Mail size={14} className="text-amber-800" />}
+                          {ch.name}
+                        </span>
+                        <CheckCircle2
+                          size={14}
+                          className={ch.connected ? 'text-emerald-700' : 'opacity-30'}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </GlassCardMotion>
+
+                <GlassCardMotion delay={0.24} className="p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#5c3f2b]">
+                      مهام الاستوديو الجارية
+                    </h3>
+                    <button
+                      onClick={() =>
+                        updateState({
+                          ...state,
+                          studioNotes: [
+                            ...state.studioNotes,
+                            {
+                              id: `n_${Date.now()}`,
+                              title: 'مهمة إبداعية جديدة للفريق',
+                              tag: 'Studio',
+                              status: 'active',
+                            },
+                          ],
+                        })
+                      }
+                      className="inline-flex items-center gap-1 text-xs font-bold text-[#8c6244]"
+                    >
+                      <Plus size={13} /> إضافة
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {state.studioNotes.map((n) => (
+                      <div
+                        key={n.id}
+                        className="flex items-center justify-between rounded-2xl bg-white/65 px-3.5 py-2.5 text-xs"
+                      >
+                        <span className="font-semibold">{n.title}</span>
+                        <span className="rounded-full bg-[#8c6244]/15 px-2.5 py-0.5 text-[10px] font-bold text-[#5c3f2b]">
+                          {n.tag}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCardMotion>
               </div>
-              <div className="flex gap-2 border-t border-[var(--border-hairline)] p-3">
-                <input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && sendChat()}
-                  placeholder="اكتب سؤالك هنا..."
-                  className="flex-1 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 text-xs outline-none"
-                />
-                <button
-                  onClick={() => sendChat()}
-                  disabled={chatBusy}
-                  className="rounded-xl bg-[var(--accent-brown)] px-4 py-2 text-white"
-                >
-                  <Send size={14} />
-                </button>
-              </div>
-            </div>
+            </motion.div>
           )}
 
-          {tab === 'settings' && <ProviderVault onRefresh={refreshDB} />}
-        </main>
+          {tab === 'social' && (
+            <motion.div
+              key="social"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+            >
+              <SocialHubView state={state} onUpdate={updateState} />
+            </motion.div>
+          )}
+
+          {tab === 'team' && (
+            <motion.div
+              key="team"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+            >
+              <TeamWorkspaceView state={state} onUpdate={updateState} />
+            </motion.div>
+          )}
+
+          {tab === 'accounts' && (
+            <motion.div
+              key="accounts"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+            >
+              <AccountAuthView state={state} onUpdate={updateState} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Bottom Mobile Navigation */}
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t border-[var(--border-hairline)] bg-[var(--bg-card)]/95 px-1 pt-2 backdrop-blur md:hidden">
+      {/* Mobile Bottom Glass Navigation */}
+      <nav className="glass-panel fixed inset-x-3 bottom-3 z-50 flex items-center justify-around rounded-2xl py-2 md:hidden">
         {navItems.map((item) => {
-          const Icon = item.icon;
           const active = tab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setTab(item.id)}
-              className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1 text-[10px] ${
-                active ? 'font-bold text-[var(--accent-brown)]' : 'text-[var(--accent-brown-soft)]'
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1 text-[10px] font-bold ${
+                active ? 'text-[#3a271c]' : 'text-[#6e5442]'
               }`}
             >
-              <Icon size={18} />
+              {item.icon}
               <span>{item.label}</span>
             </button>
           );

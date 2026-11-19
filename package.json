@@ -1,21 +1,30 @@
 {
-  "name": "@ghazal/mobile",
-  "version": "2.0.0",
-  "description": "GHAZAL Native Mobile App Wrapper (Android APK & iOS via Capacitor)",
+  "name": "ghazal-studio",
+  "version": "3.0.0",
+  "description": "GHAZAL AI Studio — Warm Glassmorphic Multi-AI & Social Command Studio",
+  "type": "module",
+  "bin": {
+    "ghazal": "./server.mjs"
+  },
   "scripts": {
-    "sync": "npx cap sync",
-    "android": "npx cap open android",
-    "ios": "npx cap open ios"
+    "dev": "concurrently \"node server.mjs\" \"vite\"",
+    "build": "vite build",
+    "start": "node server.mjs"
   },
   "dependencies": {
-    "@capacitor/android": "^6.2.0",
-    "@capacitor/app": "^6.0.2",
-    "@capacitor/core": "^6.2.0",
-    "@capacitor/haptics": "^6.0.2",
-    "@capacitor/ios": "^6.2.0",
-    "@capacitor/status-bar": "^6.0.2"
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.0"
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.1.0"
   }
 }
