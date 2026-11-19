@@ -1,67 +1,56 @@
 import { useState } from 'react';
 import { KeyRound, Check } from 'lucide-react';
-import { apiFetch } from '../lib/api';
-
-type ProviderId = 'gemini' | 'claude' | 'openai';
-
-interface Props {
-  status: {
-    activeProvider: ProviderId;
-    models: Record<ProviderId, string>;
-    configured: Record<ProviderId, boolean>;
-  };
-  onRefresh: () => void;
-}
+import { loadVault, saveVault, ProviderId } from '../lib/directLLM';
 
 const LABELS: Record<ProviderId, { name: string; placeholder: string; defaultModel: string }> = {
-  gemini: { name: 'Google Gemini', placeholder: 'AIza...', defaultModel: 'gemini-2.5-pro' },
+  gemini: { name: 'Google Gemini', placeholder: 'AIza...', defaultModel: 'gemini-2.5-flash' },
   claude: { name: 'Anthropic Claude', placeholder: 'sk-ant-...', defaultModel: 'claude-sonnet-4-20250514' },
-  openai: { name: 'OpenAI ChatGPT', placeholder: 'sk-proj-...', defaultModel: 'gpt-4o' },
+  openai: { name: 'OpenAI ChatGPT', placeholder: 'sk-proj-...', defaultModel: 'gpt-4o-mini' },
 };
 
-export function ProviderVault({ status, onRefresh }: Props) {
-  const [selected, setSelected] = useState<ProviderId>(status.activeProvider);
+export function ProviderVault({ onRefresh }: { onRefresh: () => void }) {
+  const vault = loadVault();
+  const [selected, setSelected] = useState<ProviderId>(vault.activeProvider);
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState(status.models[status.activeProvider] || '');
-  const [saving, setSaving] = useState(false);
+  const [model, setModel] = useState(vault.models[vault.activeProvider] || '');
+  const [savedMsg, setSavedMsg] = useState('');
 
   function selectProvider(id: ProviderId) {
     setSelected(id);
-    setModel(status.models[id] || LABELS[id].defaultModel);
+    setModel(vault.models[id] || LABELS[id].defaultModel);
+    const updated = { ...vault, activeProvider: id };
+    saveVault(updated);
+    onRefresh();
   }
 
-  async function saveKey() {
-    setSaving(true);
-    try {
-      if (apiKey.trim()) {
-        await apiFetch('/api/providers/key', {
-          method: 'POST',
-          body: JSON.stringify({ provider: selected, apiKey, model }),
-        });
-      }
-      await apiFetch('/api/providers/active', {
-        method: 'POST',
-        body: JSON.stringify({ provider: selected }),
-      });
-      setApiKey('');
-      onRefresh();
-    } finally {
-      setSaving(false);
-    }
+  function handleSave() {
+    const current = loadVault();
+    const updated = {
+      ...current,
+      activeProvider: selected,
+      models: { ...current.models, [selected]: model.trim() || LABELS[selected].defaultModel },
+      keys: apiKey.trim() ? { ...current.keys, [selected]: apiKey.trim() } : current.keys,
+    };
+    saveVault(updated);
+    setApiKey('');
+    setSavedMsg(`تم تفعيل ${LABELS[selected].name} بنجاح!`);
+    setTimeout(() => setSavedMsg(''), 2500);
+    onRefresh();
   }
 
   return (
     <section className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-card)] p-5">
       <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs font-semibold tracking-[0.18em] uppercase text-[var(--accent-brown)]">
-          <KeyRound size={14} /> Provider Vault
+        <div className="flex items-center gap-2 text-xs font-semibold tracking-[0.16em] uppercase text-[var(--accent-brown)]">
+          <KeyRound size={14} /> خزنة المزودين (Provider Vault)
         </div>
-        <span className="text-[11px] text-[var(--accent-brown-soft)]">AES-256 Encrypted</span>
+        <span className="text-[11px] text-[var(--accent-brown-soft)]">محفوظ في متصفحك محلياً</span>
       </div>
 
       <div className="mb-3 grid grid-cols-3 gap-2">
         {(['gemini', 'claude', 'openai'] as ProviderId[]).map((id) => {
-          const isActive = status.activeProvider === id;
+          const isActive = vault.activeProvider === id;
+          const isConfigured = Boolean(vault.keys[id]);
           return (
             <button
               key={id}
@@ -69,13 +58,11 @@ export function ProviderVault({ status, onRefresh }: Props) {
               className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-xs font-medium transition ${
                 selected === id
                   ? 'border-[var(--ink-black)] bg-[var(--ink-black)] text-[var(--bg-matte)]'
-                  : 'border-[var(--border-hairline)] bg-[var(--bg-matte)] text-[var(--ink-black)] hover:border-[var(--accent-brown)]'
+                  : 'border-[var(--border-hairline)] bg-[var(--bg-matte)] text-[var(--ink-black)]'
               }`}
             >
               <span>{LABELS[id].name.split(' ')[1]}</span>
-              {status.configured[id] && (
-                <Check size={13} className={isActive ? 'text-emerald-400' : 'opacity-60'} />
-              )}
+              {isConfigured && <Check size={13} className={isActive ? 'text-emerald-400' : 'opacity-60'} />}
             </button>
           );
         })}
@@ -85,25 +72,25 @@ export function ProviderVault({ status, onRefresh }: Props) {
         <input
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="Model ID"
-          className="w-full rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 font-mono text-xs outline-none focus:border-[var(--accent-brown)]"
+          placeholder="اسم الموديل (Model ID)"
+          className="w-full rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 font-mono text-xs outline-none"
         />
         <div className="flex flex-col gap-2 sm:flex-row">
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder={`${LABELS[selected].name} API Key (${LABELS[selected].placeholder})`}
-            className="flex-1 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 text-xs outline-none focus:border-[var(--accent-brown)]"
+            placeholder={`أدخل مفتاح ${LABELS[selected].name} (${LABELS[selected].placeholder})`}
+            className="flex-1 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-matte)] px-3.5 py-2 text-xs outline-none"
           />
           <button
-            onClick={saveKey}
-            disabled={saving}
-            className="rounded-xl bg-[var(--accent-brown)] px-4 py-2 text-xs font-semibold tracking-wider uppercase text-white transition hover:opacity-90 disabled:opacity-50"
+            onClick={handleSave}
+            className="rounded-xl bg-[var(--accent-brown)] px-4 py-2 text-xs font-semibold text-white"
           >
-            {saving ? '...' : 'Save & Activate'}
+            حفظ وتفعيل
           </button>
         </div>
+        {savedMsg && <p className="text-xs text-emerald-700">{savedMsg}</p>}
       </div>
     </section>
   );
